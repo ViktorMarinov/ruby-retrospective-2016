@@ -23,11 +23,18 @@ class CommandParser
   end
 
   def help
-    "Usage: #{@command} #{@args.map(&:help).join(' ')}" +
-      @options.map(&:help).join("")
+    help_message = "Usage: #{@command}" 
+    help_message << " #{@args.map(&:help).join(' ')}" unless @args.empty?
+    help_message << "\n#{opitions_help}" unless @options.empty?
+
+    help_message
   end
 
   private
+
+  def opitions_help
+    @options.map(&:help).join("\n")
+  end
 
   def execute_args(command_runner, args)
     @args.zip(args) { |arg, value| arg.call(command_runner, value) }
@@ -39,8 +46,6 @@ class CommandParser
 end
 
 class Argument
-  attr_accessor :name
-
   def initialize(name, &block)
     @name = name
     @block = block
@@ -56,9 +61,6 @@ class Argument
 end
 
 class Option
-  SPACES_COUNT = 4
-  attr_accessor :short_name, :full_name, :description
-
   def initialize(short_name, full_name, description, &block)
     @short_name = short_name
     @full_name = full_name
@@ -75,11 +77,11 @@ class Option
   end
 
   def help
-    "\n#{' ' * SPACES_COUNT}-#{@short_name}, #{full_name_to_s} #{description}"
+    "    -#{@short_name}, #{full_name_to_s} #{@description}"
   end
 
   def full_name_to_s
-    "--#{full_name}"
+    "--#{@full_name}"
   end
 
   private
@@ -97,7 +99,7 @@ class OptionWithParameter < Option
   end
 
   def full_name_to_s
-    "--#{full_name}=#{@value_name}"
+    "--#{@full_name}=#{@value_name}"
   end
 
   def parse(command_runner, options)

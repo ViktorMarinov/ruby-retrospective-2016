@@ -1,12 +1,11 @@
 module Model
   def attributes(*attributes)
-    if attributes != []
-      attr_accessor *attributes
-      @instance_variables = attributes.dup
-      @instance_variables.unshift :id
-      create_find_by_methods
-    else
+    if attributes.empty?
       @instance_variables
+    else
+      @instance_variables = attributes << :id
+
+      define_methods
     end
   end
 
@@ -22,59 +21,32 @@ module Model
     @instance_variables || []
   end
 
-  def inherited(_)
-    attr_accessor :id
+  def where(query)
+    query.keys.each do |attr|
+      unless instance_variables.include? attr
+        raise DataModel::UnknownAttributeError, "Unknown attribute #{attr}"
+      end
+    end
+
+    data_store.find(query).map { |model| self.new(model) }
   end
 
   private
 
-  def create_find_by_methods
-    instance_variables.each do |var| 
+  def define_methods
+    instance_variables.each do |var|
       define_singleton_method "find_by_#{var}" do |arg|
         where({var => arg})
       end
-    end
-  end
-end
 
-module Serializable
-  private
-  def to_hash
-    hash = {}
-    instance_variables.each do |var|
-      hash[var[1..-1].to_sym] = instance_variable_get(var)
+      define_method(var) { @object[var] }
+      define_method("#{var}=") { |value| @object[var] = value }
     end
-    hash
-  end
-
-  def from_hash(**attributes)
-    instance_variables = self.class.instance_variables
-    instance_variables.each do |var|
-      i_var = "@#{var}"
-      instance_variable_set i_var, attributes[var]
-    end
-  end
-end
-
-module Saveable
-  def save
-    unless @id
-      @id = self.class.data_store.id_counter
-      self.class.data_store.id_counter += 1
-    end
-    self.class.data_store.create(to_hash)
-    self
-  end
-
-  def saved?
-    @id != nil
   end
 end
 
 class DataModel
   extend Model
-  include Serializable
-  include Saveable
 
   class DeleteUnsavedRecordError < StandardError
   end
@@ -82,115 +54,108 @@ class DataModel
   class UnknownAttributeError < StandardError
   end
 
-  class << self
-    def where(**attributes)
-      attributes.keys.each do |attr|
-        unless instance_variables.include? attr 
-          raise UnknownAttributeError, "Unknown attribute #{attr}"
-        end
-      end
-      data_store.find(**attributes).map { |model| self.new(model) }
+  def initialize(initial_values = {})
+    @object = initial_values.select do |key, _| 
+      self.class.instance_variables.include? key
     end
   end
 
-  def initialize(**initial_values)
-    from_hash(**initial_values)
+  def save
+    if id
+      self.class.data_store.update(id, @object)
+    else
+      self.id = self.class.data_store.next_id
+      self.class.data_store.create(@object)
+    end
+
+    self
   end
 
   def delete
-    if saved?
-      self.class.data_store.delete(id: @id)
+    if id
+      self.class.data_store.delete(id: id)
     else
       raise DeleteUnsavedRecordError
     end
   end
 
   def ==(other)
-    if self.class == other.class
-      if self.saved? && other.saved?
-        self.id == other.id
-      else
-        self.equal? other
-      end
-    else
-      false
-    end
+    return false if self.class != other.class
+
+    return id == other.id if id && other.id
+
+    equal? other
   end
 end
 
-class DataStore
-  attr_accessor :storage, :id_counter
+class ArrayStore
+  attr_reader :storage
 
   def initialize
-    @id_counter = 1
+    @storage = []
+    @id_counter = 0
+  end
+
+  def next_id
+    @id_counter += 1
+  end
+
+  def create(record)
+    @storage << record
+  end
+
+  def find(query)
+    @storage.select { |record| match_record? query, record } 
+  end
+
+  def update(id, attributes)
+    index = @storage.find_index { |record| match_record?({id: id}, record) }
+    raise ArgumentError, "No record with id: #{id} " unless index
+  
+    attributes.each { |key, value| @storage[index][key] = value }
+  end
+
+  def delete(query)
+    @storage.reject! { |record| match_record? query, record }
+  end
+
+  private 
+
+  def match_record?(query, record)
+    query.all? { |key, value| record[key] == value }
+  end
+end
+
+class HashStore
+  attr_reader :storage
+
+  def initialize
+    @storage = {}
+    @id_counter = 0
+  end
+
+  def next_id
+    @id_counter += 1
   end
 
   def create(record)
     id = record[:id]
-    add(record) if id_available? id 
+    @storage[id] = record
   end
 
-  def update(id, **attributes)
-    found_records = find(id: id)
-    raise ArgumentError, "No record with id: #{id} " if found_records.empty?
+  def update(id, attributes)
+    raise ArgumentError, "No record with id: #{id} " unless @storage.key? id
     
-    record = found_records[0]
-    attributes.each { |key, value| record[key] = value }
+    attributes.each { |key, value| @storage[id][key] = value }
   end
 
-  def find(**query)
-    records.select do |record| 
-      query.each.all? { |key, value| record[key] == value }
+  def find(query)
+    @storage.values.select do |record|
+      query.all? { |key, value| record[key] == value }
     end
   end
 
-  private
-
-  def id_available?(id)
-    !(records.map { |record| record[:id] }.include? id)
-  end
-end
-
-class ArrayStore < DataStore
-  def initialize
-    @storage = []
-    super
-  end
-
-  def delete(**query)
-    found_records = find(**query)
-    storage.delete_if { |record| found_records.include? record }
-  end
-
-  private
-
-  def records
-    @storage
-  end
-
-  def add(record)
-    storage.push(record)
-  end
-end
-
-class HashStore < DataStore
-  def initialize
-    @storage = {}
-    super
-  end
-
-  def add(record)
-    storage[record[:id]] = record
-  end
-
-  def delete(**query)
-    found_records = find(**query)
-    storage.delete_if { |_key, value| found_records.include? value }
-  end
-
-  private
-  
-  def records
-    @storage.values
+  def delete(query)
+    find(query).each { |record| @storage.delete(record[:id]) }
   end
 end
