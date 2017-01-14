@@ -12,35 +12,23 @@ CONVERTER = {
   }
 }
 
-MELTING_POINTS_CELSIUS = {
-  'water' => 0,
-  'ethanol' => -114,
-  'gold' => 1_064,
-  'silver' => 961.8,
-  'copper' => 1_085
-}
-
-BOILING_POINTS_CELSIUS = {
-  'water' => 100,
-  'ethanol' => 78.37,
-  'gold' => 2_700,
-  'silver' => 2_162,
-  'copper' => 2_567
+SUBSTANCES = {
+  'water'   => {melting_point: 0,     boiling_point: 100  },
+  'ethanol' => {melting_point: -114,  boiling_point: 78.37},
+  'gold'    => {melting_point: 1_064, boiling_point: 2_700},
+  'silver'  => {melting_point: 961.8, boiling_point: 2_162},
+  'copper'  => {melting_point: 1_085, boiling_point: 2_567}
 }
 
 def convert_between_temperature_units(degrees, from_unit, to_unit)
-  if CONVERTER[from_unit].key?(to_unit)
-    CONVERTER[from_unit][to_unit].call(degrees)
-  else
-    degrees_in_celsius = CONVERTER[from_unit]['C'].call(degrees)
-    CONVERTER['C'][to_unit].call(degrees_in_celsius)
-  end
+  degrees_in_celsius = CONVERTER[from_unit]['C'].call(degrees)
+  CONVERTER['C'][to_unit].call(degrees_in_celsius)
 end
 
 def melting_point_of_substance(substance, unit)
-  CONVERTER['C'][unit].call(MELTING_POINTS_CELSIUS[substance])
+  CONVERTER['C'][unit].call(SUBSTANCES[substance][:melting_point])
 end
 
 def boiling_point_of_substance(substance, unit)
-  CONVERTER['C'][unit].call(BOILING_POINTS_CELSIUS[substance])
+  CONVERTER['C'][unit].call(SUBSTANCES[substance][:boiling_point])
 end
