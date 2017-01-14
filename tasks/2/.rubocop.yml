@@ -2,6 +2,7 @@ inherit_from: https://raw.githubusercontent.com/fmi/ruby-homework/master/.ruboco
 
 AllCops:
   DisabledByDefault: true
+  TargetRubyVersion: 2.3
 
 Metrics/LineLength:
   Enabled: true
